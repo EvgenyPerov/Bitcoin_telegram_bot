@@ -15,6 +15,7 @@ import org.telegram.telegrambots.meta.bots.AbsSender;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.NoSuchElementException;
+import java.util.regex.Pattern;
 
 /**
  * Обработка команды подписки на курс валюты
@@ -40,34 +41,45 @@ public class SubscribeCommand implements IBotCommand {
     @Override
     @Transactional
     public void processMessage(AbsSender absSender, Message message, String[] arguments) {
+        Pattern pattern = Pattern.compile("[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)");
+        if  (pattern.matcher(message.getText()).find()) {
 
-        String newPriceStr = message.getText().substring(SUBSCRIBE_TOPIC.length()+1).trim();
-        try {
-            Subscribers subscribe = repository.findByIdUser(message.getFrom().getId()).get();
-            subscribe.setPrice(Double.valueOf(newPriceStr));
-
-            SendMessage answer = SendMessage.builder()
-                .chatId(message.getChatId())
-                .text("Текущая цена биткоина " + TextUtil.toString(service.getBitcoinPrice()) + " USD")
-                .build();
-            absSender.execute(answer);
-
-            answer.setText("Новая подписка создана на стоимость " + newPriceStr + " USD");
-            absSender.execute(answer);
-        } catch (NumberFormatException e) {
-            SendMessage answer = SendMessage.builder()
-                .chatId(message.getChatId())
-                .text("Для подписки нужно ввести сумму после /subscribe через пробел")
-                .build();
+            String newPriceStr = message.getText().replaceAll("(/" + SUBSCRIBE_TOPIC + "|\\s)", "")
+                .replaceAll(",", ".").trim();
             try {
+                Subscribers subscribe = repository.findByIdUser(message.getFrom().getId()).get();
+                subscribe.setPrice(Double.valueOf(newPriceStr));
+
+                SendMessage answer = SendMessage.builder()
+                    .chatId(message.getChatId())
+                    .text("Текущая цена биткоина " + TextUtil.toString(service.getBitcoinPrice()) + " USD")
+                    .build();
                 absSender.execute(answer);
-            } catch (TelegramApiException ex) {
+
+                answer.setText("Новая подписка создана на стоимость " + newPriceStr + " USD");
+                absSender.execute(answer);
+
+            } catch (NumberFormatException e) {
+                sendErrorInput(absSender, message);
+            } catch (NoSuchElementException e) {
+                log.error("Пользователь не найден", e);
+            } catch (TelegramApiException e) {
                 log.error("Ошибка возникла в /subscribe методе", e);
             }
-        } catch (NoSuchElementException e){
-            log.error("Пользователь не найден", e);
-        } catch (TelegramApiException e) {
-            log.error("Ошибка возникла в /subscribe методе", e);
+        } else {
+            sendErrorInput(absSender, message);
+        }
+    }
+
+    private static void sendErrorInput(AbsSender absSender, Message message) {
+        SendMessage answer = SendMessage.builder()
+            .chatId(message.getChatId())
+            .text("Для подписки нужно ввести сумму после /subscribe через пробел")
+            .build();
+        try {
+            absSender.execute(answer);
+        } catch (TelegramApiException ex) {
+            log.error("Ошибка возникла в /subscribe методе", ex);
         }
     }
 }
